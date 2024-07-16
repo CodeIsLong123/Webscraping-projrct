@@ -43,12 +43,11 @@ def load_credentials():
 def connect_to_gmail_imap(user, password):
     imap_url = 'imap.gmail.com'
     try:
-        # Verbindung zum Gmail IMAP Server herstellen
         mail = imaplib.IMAP4_SSL(imap_url)
         mail.login(user, password)
-        mail.select('inbox')  # Verbindung zum Posteingang herstellen
+        mail.select('inbox')  
 
-        # Suche nach der neuesten E-Mail von Medium
+
         status, data = mail.search(None, '(FROM "noreply@medium.com" SUBJECT "Sign in to Medium")')
         if status != 'OK' or not data[0]:
             logging.warning("Keine passenden E-Mails gefunden")
@@ -56,7 +55,7 @@ def connect_to_gmail_imap(user, password):
 
         latest_email_id = data[0].split()[-1]
 
-        # E-Mail-Inhalt abrufen
+
         result, data = mail.fetch(latest_email_id, "(RFC822)")
         if result != 'OK':
             logging.error("Fehler beim Abrufen der E-Mail")
@@ -65,7 +64,7 @@ def connect_to_gmail_imap(user, password):
         raw_email = data[0][1]
         email_message = email.message_from_bytes(raw_email)
 
-        # HTML-Inhalt extrahieren
+    
         html_content = None
         
         for part in email_message.walk():
@@ -77,7 +76,7 @@ def connect_to_gmail_imap(user, password):
             logging.warning("Kein HTML-Inhalt in der E-Mail gefunden")
             return None
 
-        # Sign-in-Link extrahieren
+        
         soup = BeautifulSoup(html_content, 'html.parser')
         signin_link = soup.find('a', class_='email-button', string='Sign in to Medium')
 
@@ -93,19 +92,12 @@ def connect_to_gmail_imap(user, password):
     except imaplib.IMAP4.error as e:
         logging.error(f"IMAP Fehler: {e}")
         raise
-    except Exception as e:
-        logging.error(f"Unerwarteter Fehler: {e}")
-        raise
-    finally:
-        try:
-            mail.logout()
-        except:
-            pass
+
 
 class QuestionsScraperSpider(scrapy.Spider):
     name = 'stack'
-    start_urls = ['https://stackoverflow.com/questions?tab=unanswered&page=1']
-    host_url = 'https://stackoverflow.com'
+    allowed_domains = ["medium.com"]
+    start_urls = ["https://medium.com/m/signin", "https://medium.com"]
     driver = webdriver.Chrome()
     
     
@@ -113,8 +105,8 @@ class QuestionsScraperSpider(scrapy.Spider):
     def parse(self, response):
 
         driver = setup_driver()
-        driver.get('https://medium.com/m/signin')
-        driver.implicitly_wait(4)
+        driver.get(self.start_urls[0])
+        driver.implicitly_wait(5)
         driver.find_element(
                 By.XPATH,
                 '//button[div="Sign in with email"]'
@@ -126,9 +118,6 @@ class QuestionsScraperSpider(scrapy.Spider):
             By.XPATH,
             '//input[@type="email"]'
         ).send_keys(os.getenv('EMAIL'))
-
-        time.sleep(3)
-        
         continue_button = driver.find_element(By.XPATH,
                                             './/button[text()="Continue"]'
                                             ).click()
@@ -140,45 +129,41 @@ class QuestionsScraperSpider(scrapy.Spider):
         
         response = driver.page_source
         selector = Selector(text=response)
-        containers = selector.xpath('//main//div[@class="gb lk ll lm"]')
-        i = 1
-        num_scrolls = 10
-        last_height = driver.execute_script(
-            "return document.body.scrollHeight"
-        )
-        list_of_items = []
-        while True and i <= num_scrolls:
-            driver.execute_script(
-                "window.scrollTo(0, document.body.scrollHeight);"
-            )
-            time.sleep(3)
-            new_height = driver.execute_script(
-                "return document.body.scrollHeight"
-            )
-            if new_height == last_height:
-                break
-            last_height = new_height
 
-            response = driver.page_source
-            selector = Selector(text=response)
-            containers = selector.xpath('//main//div[@class="gb lk ll lm"]')
+        # Extrahiere die gesamten Container
+        containers = selector.xpath("//div[@class='gl la lb lc']")
 
-            for c in containers:
-                item = ItemLoader(
-                    item=StackItem(),
-                    response=response,
-                    selector=c
-                )
-                list_of_items.append(item)
-                item.add_xpath('title', './/div[@class="gb lk ll lm"]/text()')
-                item.add_xpath('excerpt', './/div[@class="gb lk ll lm"]/text()')
-                item.add_xpath('link', './/a/@href')
-                
-                
-                yield item.load_item()
-                
+        for container in containers:
+            title = container.xpath(".//h2[contains(@class, 'am')]/text()").get().strip()
+            link = container.xpath(".//a[./h2[contains(@class, 'am')]]/@href").get()
+            
+            print(f"Titel: {title}")
+            print(f"Link: {link}")
+            print("---")
 
-            print(list_of_items)
-            i += 1
+        # for c in containers:
+        #     print("-------------------------------------",c, "-------------------------------------")
+        #     item = ItemLoader(
+        #         item=StackItem(),
+        #         response=response,
+        #         selector=c
+        #     )
+            
+            
+
+        #     item.add_xpath(
+        #             'title',
+        #             './/h2/text()'
+        #         )
+        #     item.add_xpath(
+        #             'link',
+        #             './/div[@class="ly s"]//a/@href'
+        #         )
+        #     yield item.load_item()
+            
+            
+            
+
+
 
         driver.quit()
